@@ -15,7 +15,7 @@ if (-not (Test-Path build)) {
     }
 
     Write-Output "Testing for python3 install..."
-
+ 
     & python3 --version
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Python not found in PATH. Opening its Windows Store page."
