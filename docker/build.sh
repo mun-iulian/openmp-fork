@@ -25,6 +25,24 @@
 && target_build_arch=x86 \
 || target_build_arch="$TARGET_BUILD_ARCH"
 
+dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y \
+        cmake \
+        ninja-build \
+        clang-11 \
+        python3-pip \
+        gcc-9-multilib \
+        g++-9-multilib \
+        libstdc++-11-dev:i386 \
+    && \
+    useradd -m user && \
+    su user -c 'pip3 install --user -v "conan==1.57.0"'
+
+EXPORT CC=/usr/bin/clang-11 \
+    CXX=/usr/bin/clang++-11 \
+    PATH=~/.local/bin:${PATH}
+
 docker build \
     -t open.mp/build:ubuntu-${ubuntu_version} \
     build_ubuntu-${ubuntu_version}/ \
@@ -38,18 +56,4 @@ for folder in "${folders[@]}"; do
     sudo chown -R 1000:1000 ${folder} || exit 1
 done
 
-docker run \
-    --rm \
-    -t \
-    -w /code \
-    -v $PWD/..:/code \
-    -v $PWD/build:/code/build \
-    -v $PWD/conan:/home/user/.conan \
-    -e CONFIG=${config} \
-    -e TARGET_BUILD_ARCH=${target_build_arch} \
-    -e BUILD_SHARED=${build_shared} \
-    -e BUILD_SERVER=${build_server} \
-    -e BUILD_TOOLS=${build_tools} \
-    -e OMP_BUILD_VERSION=$(git rev-list $(git rev-list --max-parents=0 HEAD) HEAD | wc -l) \
-    -e OMP_BUILD_COMMIT=$(git rev-parse HEAD) \
-    open.mp/build:ubuntu-${ubuntu_version}
+./docker-entrypoint.sh
