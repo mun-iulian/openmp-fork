@@ -28,15 +28,9 @@ jobs:
       # required for all workflows
       security-events: write
 
-      # only required for workflows in private repositories
-      actions: read
-      contents: read
-
     strategy:
-      fail-fast: false
       matrix:
-        arch: [x86, x86_64]
-        ssl: [dynamic, static]
+        arch: [Win32, x64]
 
     steps:
     - name: Checkout repository
