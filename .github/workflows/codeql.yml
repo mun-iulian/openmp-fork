@@ -1,0 +1,142 @@
+# For most projects, this workflow file will not need changing; you simply need
+# to commit it to your repository.
+#
+# You may wish to alter this file to override the set of languages analyzed,
+# or to provide custom queries or build logic.
+#
+# ******** NOTE ********
+# We have attempted to detect the languages in your repository. Please check
+# the `language` matrix defined below to confirm you have the correct set of
+# supported CodeQL languages.
+#
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '16 0 * * 2'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    # Runner size impacts CodeQL analysis time. To learn more, please see:
+    #   - https://gh.io/recommended-hardware-resources-for-running-codeql
+    #   - https://gh.io/supported-runners-and-hardware-resources
+    #   - https://gh.io/using-larger-runners
+    # Consider using larger runners for possible analysis time improvements.
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    permissions:
+      # required for all workflows
+      security-events: write
+
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x86_64]
+        ssl: [dynamic, static]
+        include:
+        - language: c-cpp
+          build-mode: autobuild
+        - language: python
+          build-mode: none
+        # CodeQL supports the following values keywords for 'language': 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'swift'
+        # Use `c-cpp` to analyze code written in C, C++ or both
+        # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
+        # Use 'javascript-typescript' to analyze code written in JavaScript, TypeScript or both
+        # To learn more about changing the languages that are analyzed or customizing the build mode for your analysis,
+        # see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning.
+        # If you are analyzing a compiled language, you can modify the 'build-mode' for that language to customize how
+        # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        clean: true
+        submodules: recursive
+        fetch-depth: 0
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+        # If you wish to specify custom queries, you can do so here or in a config file.
+        # By default, queries listed here will override any specified in a config file.
+        # Prefix the list here with "+" to use these queries and those in the config file.
+
+        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
+        # queries: security-extended,security-and-quality
+
+    - name: Declare build output variables
+      id: vars
+      shell: bash
+      env:
+        HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        echo "build_version=$(git describe --always --tags "refs/remotes/origin/${HEAD_REF}")" >> $GITHUB_OUTPUT
+        echo "build_config=RelWithDebInfo" >> $GITHUB_OUTPUT
+        echo "build_ubuntu_version=18.04" >> $GITHUB_OUTPUT
+        echo "build_shared=${{ matrix.ssl == 'dynamic' }}" >> $GITHUB_OUTPUT
+        echo "build_server=1" >> $GITHUB_OUTPUT
+        echo "build_tools=0" >> $GITHUB_OUTPUT
+        echo "build_target_arch=${{ matrix.arch }}" >> $GITHUB_OUTPUT
+
+    - name: Set ownership
+      run: |
+        # this is to fix GIT not liking owner of the checkout dir
+        chown -R $(id -u):$(id -g) $PWD
+
+    - name: Try to restore conan cache
+      id: conan-cache-restore
+      uses: actions/cache/restore@v3
+      env:
+        cache-name: cache-conan-modules
+      with:
+        path: docker/conan/data
+        key: conan-linux-${{ matrix.arch }}-${{ matrix.ssl }}-${{ hashFiles('CMakeLists.txt', 'lib/CMakeLists.txt', 'SDK/CMakeLists.txt', 'SDK/lib/cmake-conan/conan.cmake', 'SDK/lib/cmake-conan/conan-omp.cmake') }}
+
+    - name: Build
+      run: |
+        cd docker
+        CONFIG=${{ steps.vars.outputs.build_config }} UBUNTU_VERSION=${{ steps.vars.outputs.build_ubuntu_version }} BUILD_SHARED=${{ steps.vars.outputs.build_shared }} BUILD_SERVER=${{ steps.vars.outputs.build_server }} BUILD_TOOLS=${{ steps.vars.outputs.build_tools }} TARGET_BUILD_ARCH=${{ steps.vars.outputs.build_target_arch }} ./build.sh
+
+    - name: Try to save conan cache
+      if: steps.conan-cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v3
+      env:
+        cache-name: cache-conan-modules
+      with:
+        path: docker/conan/data
+        key: ${{ steps.conan-cache-restore.outputs.cache-primary-key }}
+
+    - name: Create a build archive
+      id: build
+      env:
+        HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      run: |
+        version=${{ steps.vars.outputs.build_version }}
+        artifact_name="open.mp-linux-${{ matrix.arch }}${{ matrix.ssl == 'dynamic' && '-dynssl' || '' }}-${version}"
+        echo "artifact_name=${artifact_name}" >> $GITHUB_OUTPUT
+        cd docker/build/Output/*
+        sudo tar -cJvf "${artifact_name}.tar.xz" "Server"
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ steps.build.outputs.artifact_name }}
+        path: docker/build/Output/${{ steps.vars.outputs.build_config }}/${{ steps.build.outputs.artifact_name }}.tar.xz
+        if-no-files-found: error
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
