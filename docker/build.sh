@@ -31,6 +31,7 @@ dpkg --add-architecture i386 && \
         cmake \
         ninja-build \
         clang-11 \
+        python3 \
         python3-pip \
         gcc-9-multilib \
         g++-9-multilib \
