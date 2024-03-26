@@ -23,7 +23,7 @@
 | Component | Something that's conceptually different enough it can be separated into its own module |
 | Extensible | Something to which extensions can be added to preserve ABI compatibility |
 | Extension | Something which adds additional functionality to an extensible and preserves ABI compatibility |
-
+  
 ## Tools
 
 * [CMake 3.19+](https://cmake.org/)
